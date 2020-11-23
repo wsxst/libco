@@ -40,8 +40,11 @@
 #include <unistd.h>
 #include <limits.h>
 
+// 按照C规则来编译该函数，C++为了实现多态，会给编译的函数名加些东西，而C则保持不变
 extern "C"
 {
+	// TODO: extern 关键词貌似没必要，因为C中默认所有函数都是外部函数？
+	// 声明，而非定义；内嵌了汇编指令
 	extern void coctx_swap( coctx_t *,coctx_t* ) asm("coctx_swap");
 };
 using namespace std;
