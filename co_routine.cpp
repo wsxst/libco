@@ -46,15 +46,25 @@ extern "C"
 	// TODO: extern 关键词貌似没必要，因为C中默认所有函数都是外部函数？
 	// 声明，而非定义；内嵌了汇编指令
 	extern void coctx_swap( coctx_t *,coctx_t* ) asm("coctx_swap");
+	// TODO: 保存当前上下文到第一个参数，并激活第二个参数的上下文
+	extern void coctx_swap( coctx_t *,coctx_t* ) asm("coctx_swap");// TODO: 这里没看懂，extern本身不就实现了函数声明吗，为什么还要加asm汇编
 };
 using namespace std;
-stCoRoutine_t *GetCurrCo( stCoRoutineEnv_t *env );
+stCoRoutine_t *GetCurrCo( stCoRoutineEnv_t *env );// 根据线程的运行环境取当前协程
 struct stCoEpoll_t;
 
+/*
+* 线程所管理的协程的运行环境
+* 一个线程只有一个这个属性
+* 包括协程调用栈、epoll协程调度器、
+*/
 struct stCoRoutineEnv_t
 {
+	// 这里实际上维护的是个调用栈
+	// 最后一位是当前运行的协程，前一位是当前协程的父协程(即resume该协程的协程)
+	// 可以看出，libco只能支持128层协程的嵌套调用
 	stCoRoutine_t *pCallStack[ 128 ];
-	int iCallStackSize;
+	int iCallStackSize;// 当前调用栈长度
 	stCoEpoll_t *pEpoll;
 
 	//for copy stack log lastco and nextco
@@ -65,7 +75,6 @@ struct stCoRoutineEnv_t
 void co_log_err( const char *fmt,... )
 {
 }
-
 
 #if defined( __LIBCO_RDTSCP__) 
 static unsigned long long counter(void)
@@ -151,6 +160,7 @@ static pid_t GetPid()
 	return p ? *(pid_t*)(p + 18) : getpid();
 }
 */
+// 将一个节点从其所在的链表中删除
 template <class T,class TLink>
 void RemoveFromLink(T *ap)
 {
@@ -184,13 +194,14 @@ void RemoveFromLink(T *ap)
 	}
 	else
 	{
-		ap->pNext->pPrev = ap->pPrev;
+		ap->pNext->pPrev = ap->pPrev;// TODO: 这里和从头部删除怎么处理不同？是上面判断多余了，还是下面有nullptr风险？
 	}
 
 	ap->pPrev = ap->pNext = NULL;
 	ap->pLink = NULL;
 }
 
+// 向链表尾部插入一个节点
 template <class TNode,class TLink>
 void inline AddTail(TLink*apLink,TNode *ap)
 {
@@ -212,6 +223,7 @@ void inline AddTail(TLink*apLink,TNode *ap)
 	}
 	ap->pLink = apLink;
 }
+// 将头节点从双向链表中删除（但是不释放空间，因为在实现上并非真正的链表）
 template <class TNode,class TLink>
 void inline PopHead( TLink*apLink )
 {
@@ -269,20 +281,22 @@ void inline Join( TLink*apLink,TLink *apOther )
 }
 
 /////////////////for copy stack //////////////////////////
+// 分配共享栈内存
 stStackMem_t* co_alloc_stackmem(unsigned int stack_size)
 {
 	stStackMem_t* stack_mem = (stStackMem_t*)malloc(sizeof(stStackMem_t));
-	stack_mem->occupy_co= NULL;
+	stack_mem->occupy_co= NULL;// 一开始没协程
 	stack_mem->stack_size = stack_size;
 	stack_mem->stack_buffer = (char*)malloc(stack_size);
-	stack_mem->stack_bp = stack_mem->stack_buffer + stack_size;
+	stack_mem->stack_bp = stack_mem->stack_buffer + stack_size;// 栈底，高地址
 	return stack_mem;
 }
 
+// 分配count个共享栈的空间，每个栈空间大小为stack_size
 stShareStack_t* co_alloc_sharestack(int count, int stack_size)
 {
 	stShareStack_t* share_stack = (stShareStack_t*)malloc(sizeof(stShareStack_t));
-	share_stack->alloc_idx = 0;
+	share_stack->alloc_idx = 0;// TODO: 默认从第0个共享栈开始使用？
 	share_stack->stack_size = stack_size;
 
 	//alloc stack array
@@ -296,6 +310,8 @@ stShareStack_t* co_alloc_sharestack(int count, int stack_size)
 	return share_stack;
 }
 
+// 在共享栈中，获取协程的栈内存
+// TODO: 为什么index要递增？
 static stStackMem_t* co_get_stackmem(stShareStack_t* share_stack)
 {
 	if (!share_stack)
@@ -308,26 +324,30 @@ static stStackMem_t* co_get_stackmem(stShareStack_t* share_stack)
 	return share_stack->stack_array[idx];
 }
 
-
 // ----------------------------------------------------------------------------
 struct stTimeoutItemLink_t;
 struct stTimeoutItem_t;
+
+// TODO: epoll结构体？
 struct stCoEpoll_t
 {
-	int iEpollFd;
-	static const int _EPOLL_SIZE = 1024 * 10;
+	int iEpollFd;// epoll的ID
+	static const int _EPOLL_SIZE = 1024 * 10;// epoll大小固定为10k
 
-	struct stTimeout_t *pTimeout;
+	struct stTimeout_t *pTimeout;// 超时管理器
 
-	struct stTimeoutItemLink_t *pstTimeoutList;
+	struct stTimeoutItemLink_t *pstTimeoutList;// 目前已超时的事件，仅仅作为中转使用，最后会合并到active上
 
-	struct stTimeoutItemLink_t *pstActiveList;
+	struct stTimeoutItemLink_t *pstActiveList;// 正在处理的事件
 
-	co_epoll_res *result; 
+	co_epoll_res *result;
 
 };
+
 typedef void (*OnPreparePfn_t)( stTimeoutItem_t *,struct epoll_event &ev, stTimeoutItemLink_t *active );
 typedef void (*OnProcessPfn_t)( stTimeoutItem_t *);
+
+// 超时链表中的一项
 struct stTimeoutItem_t
 {
 
@@ -335,9 +355,9 @@ struct stTimeoutItem_t
 	{
 		eMaxTimeout = 40 * 1000 //40s
 	};
-	stTimeoutItem_t *pPrev;
-	stTimeoutItem_t *pNext;
-	stTimeoutItemLink_t *pLink;
+	stTimeoutItem_t *pPrev;// 前驱
+	stTimeoutItem_t *pNext;// 后继
+	stTimeoutItemLink_t *pLink;// 该链表项的首指针，也就代表该链表项所在链表
 
 	unsigned long long ullExpireTime;
 
@@ -345,21 +365,33 @@ struct stTimeoutItem_t
 	OnProcessPfn_t pfnProcess;
 
 	void *pArg; // routine 
-	bool bTimeout;
+	
+	bool bTimeout;// 是否已经超时
 };
+// 超时链表
 struct stTimeoutItemLink_t
 {
-	stTimeoutItem_t *head;
-	stTimeoutItem_t *tail;
-
+	stTimeoutItem_t *head;// 头指针
+	stTimeoutItem_t *tail;// 尾指针
 };
+/*
+* 毫秒级的超时管理器
+* 使用时间轮实现
+* 但是是有限制的，最长超时时间不可以超过iItemSize毫秒
+*/
 struct stTimeout_t
 {
-	stTimeoutItemLink_t *pItems;
-	int iItemSize;
+	/*
+	   时间轮
+	   超时事件数组，总长度为iItemSize,每一项代表1毫秒，为一个链表，代表这个时间所超时的事件。
 
-	unsigned long long ullStart;
-	long long llStartIdx;
+	   这个数组在使用的过程中，会使用取模的方式，把它当做一个循环数组来使用，虽然并不是用循环链表来实现的
+	*/
+	stTimeoutItemLink_t *pItems;
+	int iItemSize;// TODO: 默认为60*1000ms，也就是1min
+
+	unsigned long long ullStart;//目前的超时管理器最早的时间
+	long long llStartIdx;//目前最早的时间所对应的pItems上的索引
 };
 stTimeout_t *AllocTimeout( int iSize )
 {
@@ -373,6 +405,8 @@ stTimeout_t *AllocTimeout( int iSize )
 
 	return lp;
 }
+
+// 释放超时管理器内存空间，先释放数组的空间
 void FreeTimeout( stTimeout_t *apTimeout )
 {
 	free( apTimeout->pItems );
@@ -459,26 +493,34 @@ static int CoRoutineFunc( stCoRoutine_t *co,void * )
 	return 0;
 }
 
-
-
+/**
+* 根据协程管理器env, 新建一个协程
+* 
+* @param env - (input) 协程所在线程的环境
+* @param attr - (input) 协程属性，目前主要是共享栈 
+* @param pfn - (input) 协程所运行的函数
+* @param arg - (input) 协程运行函数的参数
+*/
 struct stCoRoutine_t *co_create_env( stCoRoutineEnv_t * env, const stCoRoutineAttr_t* attr,
 		pfn_co_routine_t pfn,void *arg )
 {
 
+	// 初始化属性。并且给默认值
 	stCoRoutineAttr_t at;
-	if( attr )
+	if( attr ) // 用外部传入的参数来初始化协程参数
 	{
 		memcpy( &at,attr,sizeof(at) );
 	}
-	if( at.stack_size <= 0 )
+	if( at.stack_size <= 0 ) // 外部参数未给栈大小赋值，赋128K
 	{
 		at.stack_size = 128 * 1024;
 	}
-	else if( at.stack_size > 1024 * 1024 * 8 )
+	else if( at.stack_size > 1024 * 1024 * 8 ) // 栈大小最大不能超过8M
 	{
 		at.stack_size = 1024 * 1024 * 8;
 	}
 
+	// TODO: 相当于低12位向上取整进位，为啥这么做？
 	if( at.stack_size & 0xFFF ) 
 	{
 		at.stack_size &= ~0xFFF;
@@ -488,7 +530,6 @@ struct stCoRoutine_t *co_create_env( stCoRoutineEnv_t * env, const stCoRoutineAt
 	stCoRoutine_t *lp = (stCoRoutine_t*)malloc( sizeof(stCoRoutine_t) );
 	
 	memset( lp,0,(long)(sizeof(stCoRoutine_t))); 
-
 
 	lp->env = env;
 	lp->pfn = pfn;
@@ -521,12 +562,24 @@ struct stCoRoutine_t *co_create_env( stCoRoutineEnv_t * env, const stCoRoutineAt
 	return lp;
 }
 
+
+/**
+* 创建一个协程对象
+* 
+* @param ppco - (output) 协程的地址，未初始化，需要在此函数中将其申请内存空间以及初始化工作
+* @param attr - (input) 协程属性，目前主要是共享栈 
+* @param pfn - (input) 协程所运行的函数
+* @param arg - (input) 协程运行函数的参数
+*/
 int co_create( stCoRoutine_t **ppco,const stCoRoutineAttr_t *attr,pfn_co_routine_t pfn,void *arg )
 {
+	// 查找当前线程的管理环境
 	if( !co_get_curr_thread_env() ) 
 	{
+		// 如果找不到，则初始化协程
 		co_init_curr_thread_env();
 	}
+	// 根据协程的运行环境，来创建一个协程
 	stCoRoutine_t *co = co_create_env( co_get_curr_thread_env(), attr, pfn,arg );
 	*ppco = co;
 	return 0;
@@ -569,8 +622,6 @@ void co_resume( stCoRoutine_t *co )
 	}
 	env->pCallStack[ env->iCallStackSize++ ] = co;
 	co_swap( lpCurrRoutine, co );
-
-
 }
 
 
@@ -740,6 +791,7 @@ static short EpollEvent2Poll( uint32_t events )
 	return e;
 }
 
+// 线程私有变量，一个线程维护一个独立的
 static __thread stCoRoutineEnv_t* gCoEnvPerThread = NULL;
 
 void co_init_curr_thread_env()
@@ -903,9 +955,10 @@ void FreeEpoll( stCoEpoll_t *ctx )
 	free( ctx );
 }
 
+// 从协程的运行环境中取当前协程 
 stCoRoutine_t *GetCurrCo( stCoRoutineEnv_t *env )
 {
-	return env->pCallStack[ env->iCallStackSize - 1 ];
+	return env->pCallStack[ env->iCallStackSize - 1 ];// 调用栈的栈顶即为当前协程
 }
 stCoRoutine_t *GetCurrThreadCo( )
 {
@@ -1119,7 +1172,8 @@ static void OnSignalProcessEvent( stTimeoutItem_t * ap )
 	co_resume( co );
 }
 
-stCoCondItem_t *co_cond_pop( stCoCond_t *link );
+stCoCondItem_t *co_cond_pop( stCoCond_t *link ); // 提前把空结构体声明放前面是防止编译报错
+// 
 int co_cond_signal( stCoCond_t *si )
 {
 	stCoCondItem_t * sp = co_cond_pop( si );
@@ -1187,7 +1241,7 @@ int co_cond_free( stCoCond_t * cc )
 	return 0;
 }
 
-
+// 将信号量结构体链表中的头节点弹出，并返回弹出的头指针
 stCoCondItem_t *co_cond_pop( stCoCond_t *link )
 {
 	stCoCondItem_t *p = link->head;

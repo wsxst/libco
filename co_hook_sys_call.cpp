@@ -217,7 +217,7 @@ static inline void free_by_fd( int fd )
 	return;
 
 }
-int socket(int domain, int type, int protocol)
+int socket(int domain, int type, int protocol) // 
 {
 	HOOK_SYS_FUNC( socket );
 
@@ -1028,7 +1028,7 @@ struct hostent *co_gethostbyname(const char *name)
 #endif
 
 
-void co_enable_hook_sys() //这函数必须在这里,否则本文件会被忽略！！！
+void co_enable_hook_sys() // TODO: 这函数必须在这里,否则本文件会被忽略！！！为什么？
 {
 	stCoRoutine_t *co = GetCurrThreadCo();
 	if( co )
