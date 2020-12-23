@@ -659,28 +659,25 @@ int fcntl(int fildes, int cmd, ...)
 		return __LINE__;
 	}
 
-	va_list arg_list;
-	va_start( arg_list,cmd );
+	va_list arg_list; // 变量参数列表
+	va_start( arg_list,cmd ); // 将arg_list初始化为传入的cmd参数后面的参数列表（...），每次用va_arg的语义是向后取一个
 
 	int ret = -1;
 	rpchook_t *lp = get_by_fd( fildes );
 	switch( cmd )
 	{
 		case F_DUPFD:
+		case F_SETFD:
+		case F_SETOWN:
 		{
 			int param = va_arg(arg_list,int);
 			ret = g_sys_fcntl_func( fildes,cmd,param );
 			break;
 		}
 		case F_GETFD:
+		case F_GETOWN:
 		{
 			ret = g_sys_fcntl_func( fildes,cmd );
-			break;
-		}
-		case F_SETFD:
-		{
-			int param = va_arg(arg_list,int);
-			ret = g_sys_fcntl_func( fildes,cmd,param );
 			break;
 		}
 		case F_GETFL:
@@ -706,29 +703,8 @@ int fcntl(int fildes, int cmd, ...)
 			}
 			break;
 		}
-		case F_GETOWN:
-		{
-			ret = g_sys_fcntl_func( fildes,cmd );
-			break;
-		}
-		case F_SETOWN:
-		{
-			int param = va_arg(arg_list,int);
-			ret = g_sys_fcntl_func( fildes,cmd,param );
-			break;
-		}
 		case F_GETLK:
-		{
-			struct flock *param = va_arg(arg_list,struct flock *);
-			ret = g_sys_fcntl_func( fildes,cmd,param );
-			break;
-		}
 		case F_SETLK:
-		{
-			struct flock *param = va_arg(arg_list,struct flock *);
-			ret = g_sys_fcntl_func( fildes,cmd,param );
-			break;
-		}
 		case F_SETLKW:
 		{
 			struct flock *param = va_arg(arg_list,struct flock *);

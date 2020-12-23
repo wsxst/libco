@@ -527,10 +527,12 @@ struct stCoRoutine_t *co_create_env( stCoRoutineEnv_t * env, const stCoRoutineAt
 	
 	memset( lp,0,(long)(sizeof(stCoRoutine_t))); 
 
+	// 环境、函数及其参数
 	lp->env = env;
 	lp->pfn = pfn;
 	lp->arg = arg;
 
+	// 传入共享栈
 	stStackMem_t* stack_mem = NULL;
 	if( at.share_stack )
 	{
@@ -787,17 +789,17 @@ static short EpollEvent2Poll( uint32_t events )
 	return e;
 }
 
-// 线程私有变量，一个线程维护一个独立的
+// 线程私有变量，一个线程维护一个独立的协程环境
 static __thread stCoRoutineEnv_t* gCoEnvPerThread = NULL;
 
 void co_init_curr_thread_env()
 {
 	gCoEnvPerThread = (stCoRoutineEnv_t*)calloc( 1, sizeof(stCoRoutineEnv_t) );
-	stCoRoutineEnv_t *env = gCoEnvPerThread;
+	stCoRoutineEnv_t *env = gCoEnvPerThread; // 先为全局环境分配空间，再赋值给局部环境
 
-	env->iCallStackSize = 0;
+	env->iCallStackSize = 0; // 调用栈大小初始为0
 	struct stCoRoutine_t *self = co_create_env( env, NULL, NULL,NULL );
-	self->cIsMain = 1;
+	self->cIsMain = 1; // 初始化的是主协程
 
 	env->pending_co = NULL;
 	env->occupy_co = NULL;

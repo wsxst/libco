@@ -39,12 +39,12 @@ static void *routine_func( void * )
 }
 int main(int argc,char *argv[])
 {
-	int cnt = atoi( argv[1] );
+	int cnt = atoi( argv[1] ); // 命令行参数指定起多少个线程
 
 	pthread_t tid[ cnt ];
 	for(int i=0;i<cnt;i++)
 	{
-		pthread_create( tid + i,NULL,routine_func,0);
+		pthread_create( tid + i,NULL,routine_func,0); // 四个参数分别代表线程ID、线程属性、线程函数、线程参数
 	}
 	for(;;)
 	{
